@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Showing cookie</title>
+</head>
+<body>
+{{.CookieValue}}<br><br>
+{{if.Good}}
+    <form method="POST" action = "\tampering">
+     <button>tamper with cookie</button>
+    </form>
+{{end}}
+</body>
+</html>
