@@ -63,6 +63,7 @@ func homepage(res http.ResponseWriter, req *http.Request){
 
 func show(res http.ResponseWriter, req *http.Request){
 	var currentUser user
+	var mydata data
 	mycookie, err := req.Cookie("sessionfino")
 	if err != nil{
 		log.Println(err)
@@ -84,19 +85,17 @@ func show(res http.ResponseWriter, req *http.Request){
 	}
 
 	if check(userFino[1],userFino[2]){
-		mydata := data{
+		mydata = data{
 			CookieValue: "cookie value = " + mycookie.Value + " decoded cookie uuid = " + userFino[0] + " name: " + currentUser.Name + " age: " + currentUser.Age + " hmac = " + userFino[2],
 			Good: true,
 		}
-		err = myTemplates.ExecuteTemplate(res,"show.gohtml",mydata)
 	}else{
-		mydata := data{
+		mydata = data{
 			CookieValue: "cookie was tampered with",
 			Good: false,
 		}
-		err = myTemplates.ExecuteTemplate(res,"show.gohtml",mydata)
 	}
-
+	err = myTemplates.ExecuteTemplate(res,"show.gohtml",mydata)
 	if err != nil{
 		log.Println(err)
 	}
