@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Showing cookie</title>
+</head>
+<body>
+{{.CookieValue}}<br><br>
+{{if.Good}}
+    <form method="POST" action = "/tampering">
+     <button>tamper with cookie</button>
+    </form>
+{{end}}
+{{if.Login}}
+<form method="POST" action="/form">
+    <button>Enter data</button>
+</form>
+<form method="post" action="/view">
+    <button>View data</button>
+</form>
+<form method="POST" action="/logout">
+    <button>Logout</button>
+</form>
+{{end}}
+{{if.Logout}}
+<form method="POST" action="/login">
+    <button>Login</button>
+</form>
+{{end}}
+<form method="POST" action="/">
+    <button>Homepage</button>
+</form>
+</body>
+</html>
