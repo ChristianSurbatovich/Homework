@@ -82,6 +82,13 @@ func show(res http.ResponseWriter, req *http.Request){
 	}
 
 	userFino := strings.Split(mycookie.Value,"|")
+	if len(userFino) < 4{
+		http.Redirect(res,req,"/",http.StatusFound)
+	}
+	currentUser = getUser(userFino[2])
+	if currentUser.Login == false{
+		http.Redirect(res,req,"/",http.StatusFound)
+	}
 	currentUser = user{
 		Name: req.FormValue("myname"),
 		Age: req.FormValue("myage"),
