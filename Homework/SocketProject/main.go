@@ -12,11 +12,9 @@ import (
 	"bufio"
 )
 
+var startTime = time.Now()
 func sendMessage(action string, stock string, amount int, price float64, conn net.Conn) bool{
-	e, err := conn.Write([]byte(action + " " + stock + " " + strconv.Itoa(amount) + " " + strconv.FormatFloat(price, 'f', 2, 64) + " \n"))
-	log.Println("Sent a message: " + action + " " + stock + " " + strconv.Itoa(amount) + " " + strconv.FormatFloat(price, 'f', 2, 64))
-	log.Println(e)
-	log.Println(err)
+	_, err := conn.Write([]byte(action + " " + stock + " " + strconv.Itoa(amount) + " " + strconv.FormatFloat(price, 'f', 2, 64) + " \n"))
 	if(err != nil){
 		log.Println(err)
 		return false
@@ -24,32 +22,31 @@ func sendMessage(action string, stock string, amount int, price float64, conn ne
 	return true
 }
 
-func priceList(conn net.Conn, list *[]float64){
+func priceList(conn net.Conn, r *bufio.Reader, list *[6]float64){
 	_, err := conn.Write([]byte("PRICE" + " " + "0" + " " + "0" + " " + "0" + " \n"))
-	log.Println("Sent a message: " + "PRICE" + " " + "0" + " " + "0" + " " + "0")
 	if(err != nil){
 		log.Println(err)
 	}
 	conn.SetReadDeadline(time.Time{})
-	prices, err := bufio.NewReader(conn).ReadString('\n')
+	prices, err := r.ReadString('\n')
 	if err != nil{
 		log.Fatalln(err)
 	}
 
 	s := strings.Split(prices," ")
-	log.Println("Received a message: " + prices)
 	s = s[1:len(s) - 1]
 	for i, e := range s{
 		(*list)[i], err = strconv.ParseFloat(e,64)
 	}
 }
 
-func screenDisplay(channel1 chan float64, channel2 chan []float64, channel3 chan []int, stocklist []string){
+func screenDisplay(channel1 chan float64, channel2 chan [6]float64, channel3 chan []int, stocklist []string){
 	ticker := time.NewTicker(time.Second * 10)
 	defer ticker.Stop()
 	var revenue float64
-	var prices []float64
+	var prices [6]float64
 	var amount []int
+	var assetValue float64
 	for {
 		select {
 			case revenue = <-channel1:  // update revenue when a new value is available
@@ -58,17 +55,17 @@ func screenDisplay(channel1 chan float64, channel2 chan []float64, channel3 chan
 
 			case _ = <-ticker.C:
 			// every 10 seconds display it
-				s := strconv.FormatFloat(revenue, 'f', 2, 64)
+				newTime := time.Now().Sub(startTime)
+				assetValue = 0.0
 				fmt.Println("\n**************************************")
-				fmt.Println("This client currently has a revenue of:" + s)
+				fmt.Printf("This client has been running for %02d:%02d:%02d\n",int(newTime.Seconds() / 3600),int(newTime.Seconds() / 60),int(newTime.Seconds()) % 60)
 				fmt.Println("Current stock holdings and prices")
 				for i, e:= range stocklist{
 					fmt.Println(e + " " + strconv.Itoa(amount[i]) + " " + strconv.FormatFloat(prices[i],'f',2,64))
+					assetValue += float64(amount[i]) * prices[i]
 				}
+				fmt.Printf("Asset value = %0.2f		Balance = %0.2f		Net Worth = %0.2f\n",assetValue,revenue,assetValue + revenue)
 				fmt.Println("\n**************************************")
-				//fmt.Println(stocklist)
-				//fmt.Println(amount)
-				//fmt.Println(prices)
 		}
 	}
 
@@ -83,10 +80,8 @@ func main(){
 	var x, y, z float64
 	var err error
 	wait := false  // for simulating wait after a transaction succeeds
-	waitLonger := false
-
-	oldprice := [6]float64{83.95, 1021.57, 170.58, 17.91, 75.17, 10.66}
-	newprice := []float64{83.95, 1021.57, 170.58, 17.91, 75.17, 10.66}
+	var oldprice  [6]float64
+	var newprice  [6]float64
 	// amount of each stock this client has
 	available := []int{100, 100, 100, 100, 100, 100}
 	var delta [6]float64
@@ -98,7 +93,7 @@ func main(){
 	}
 	channelr := make(chan float64, 100)
 	channela := make(chan []int, 100)
-	channelp := make(chan []float64, 100)
+	channelp := make(chan [6]float64, 100)
 	go screenDisplay(channelr, channelp, channela, stocks)
 
 	channelr <- 0.0
@@ -112,7 +107,6 @@ func main(){
 
 	if len(os.Args) > 2{
 		args = os.Args[2:]
-		log.Println(args)
 	}
 
 
@@ -164,6 +158,10 @@ func main(){
 		log.Fatalln(err)
 	}
 	defer serverConn.Close()
+	reader := bufio.NewReader(serverConn)
+
+	priceList(serverConn, reader, &oldprice)
+	priceList(serverConn, reader, &oldprice)
 
 	for {
 
@@ -184,7 +182,7 @@ func main(){
 				buy = false
 			case false:
 				// get latest pricelist from the server
-				priceList(serverConn,&newprice)
+				priceList(serverConn, reader, &newprice)
 				channelp <- newprice
 				// get the % change of each price
 				for i, _ := range newprice{
@@ -192,11 +190,20 @@ func main(){
 					oldprice[i] = newprice[i]
 				}
 
-				// chose an available stock at random
-				stock = r.Intn(6)
-
-				for available[stock] < 1 {
-					stock = r.Intn(6)
+				// chose an available stock at random, if there are no stocks to try and sell than try to buy some
+				anyAvailable := false
+				for _, e := range available{
+					if e > 0 {
+						anyAvailable = true
+					}
+				}
+				if anyAvailable{
+					for available[stock] < 1 {
+						stock = r.Intn(6)
+					}
+				}else{
+					buy = true
+					continue
 				}
 
 
@@ -218,25 +225,18 @@ func main(){
 			// to prevent getting stuck in a state where everyone is trying to buy/sell different stocks
 			for amount > 0 {
 				if (buy) {
-					if waitLonger{
-						serverConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-					}else{
-						serverConn.SetReadDeadline(time.Now().Add(20 * time.Millisecond))
-					}
+						serverConn.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
+
 
 				}else {
-					if waitLonger{
-						serverConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-					}else{
-						serverConn.SetReadDeadline(time.Now().Add(40 * time.Millisecond))
-					}
+						serverConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+
 				}
 
-				s, err := bufio.NewReader(serverConn).ReadString('\n')
+				s, err := reader.ReadString('\n')
 				if (err != nil) {
 					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 					//	log.Println(err)
-						waitLonger = true
 						if(buy){
 							sendMessage("CANCELSELL", stocks[stock], amount, 0.0, serverConn)
 						}else{
@@ -247,10 +247,9 @@ func main(){
 					}
 
 				}else {
-					waitLonger = false
 					s = strings.TrimRight(s,"\n")
 					message := strings.Split(s, " ")
-					log.Println("Received a message: " + s + "\n")
+					//log.Println("Received a message: " + s + "\n")
 					if len(message) > 3 {
 						for i, e := range stocks{
 							if e == message[1]{

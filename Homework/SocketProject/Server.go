@@ -20,6 +20,8 @@ var muxSell sync.Mutex
 var buyList []clientInfo
 var muxBuy sync.Mutex
 
+var salesMade = make(chan int16)
+
 type clientInfo struct{
 	client net.Conn
 	amount int
@@ -30,7 +32,7 @@ type clientInfo struct{
 
 
 // array of stock price
-var pricelist = [6]float64{83.95, 1021.57, 170.58, 17.91, 75.17, 10.66}  // starting prices from CNN money
+var pricelist = [6]float64{113.95, 221.57, 170.58, 68.91, 75.17, 30.66}  // starting prices from CNN money
 var muxPrice sync.Mutex
 var stocks = []string{"MSFT", "GOOGL", "AAPL", "GE", "C", "AMD"}
 
@@ -47,25 +49,25 @@ func getPrice(stock string) float64{
 }
 func handleConnection(client net.Conn){
 	defer client.Close()
+	reader := bufio.NewReader(client)
 	log.Println("Received a connection from: " + client.RemoteAddr().String())
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	for {
-		s, err := bufio.NewReader(client).ReadString('\n')
-		log.Println("Received from: " + client.RemoteAddr().String() + " " + s)
+		s, err := reader.ReadString('\n')
+		//log.Println("Received from: " + client.RemoteAddr().String() + " " + s)
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && (netErr.Timeout()) {
 				log.Println(err)
 				continue
 			}
 			if err == io.EOF{
-				log.Print(err)
-				log.Print(" from " + client.RemoteAddr().String() + "\n")
+				log.Println(err)
+				log.Println(s)
 				continue
 			}
 			// if a client disconnects then remove any stocks they had listed
 			log.Println(err)
-			log.Println("Message was: " + string(s))
 			muxBuy.Lock()
 			for i, e := range buyList{
 				if e.client == client{
@@ -93,7 +95,7 @@ func handleConnection(client net.Conn){
 				amount, err := strconv.Atoi(message[2])
 				if(err != nil){
 					log.Println(err)
-					log.Println()
+						log.Println()
 				}
 				price := getPrice(stock)
 				switch message[0] {
@@ -127,6 +129,7 @@ func handleConnection(client net.Conn){
 							}
 							sellList[i].amount -= amount
 							amount = 0
+							salesMade<- 1
 							break  // no reason to keep going
 						}else if seller.stock == stock && seller.amount <= amount { // if the buyer is buying more stocks than the seller is selling
 							_, err := seller.client.Write([]byte("SELL" + " " + stock + " " + strconv.Itoa(seller.amount) + " " + strconv.FormatFloat(price, 'f', 2, 64) + " \n"))
@@ -141,7 +144,7 @@ func handleConnection(client net.Conn){
 							}
 							amount -= seller.amount
 							remove[i] = true
-
+							salesMade<- 1
 						}
 					}
 					shift := 0
@@ -195,6 +198,7 @@ func handleConnection(client net.Conn){
 							}
 							buyList[i].amount -= amount
 							amount = 0
+							salesMade<- 1
 							break
 						}else if buyer.stock == stock && buyer.amount <= amount { // if the buyer is buying more stocks than the seller is selling
 							_, err := buyer.client.Write([]byte("BUY" + " " + stock + " " + strconv.Itoa(buyer.amount) + " " + strconv.FormatFloat(price, 'f', 2, 64) + " \n"))
@@ -210,6 +214,7 @@ func handleConnection(client net.Conn){
 							}
 							amount -= buyer.amount
 							remove[i] = true
+							salesMade<- 1
 						}
 					}
 					shift := 0
@@ -262,7 +267,6 @@ func handleConnection(client net.Conn){
 					}
 					muxSell.Unlock()
 				case "PRICE":
-					log.Println("Sending prices")
 					var prices []byte
 					prices = append(prices,"PRICE"...)
 					muxPrice.Lock()
@@ -276,7 +280,6 @@ func handleConnection(client net.Conn){
 						log.Println(err)
 						break
 					}
-					log.Println("Done sending prices")
 				}
 			}
 
@@ -290,16 +293,12 @@ func priceHandler(){
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 	for _ = range ticker.C{
-		log.Println("Changing prices!")
-
 		for i, e := range pricelist{
 			// ajdust each price by -5% to +5%
 			muxPrice.Lock()
 			pricelist[i] = e * (0.95 + (float64(r.Intn(11))/100.0))
 			muxPrice.Unlock()
 		}
-
-		log.Println("Done changing prices!")
 	}
 
 }
@@ -326,8 +325,16 @@ func main(){
 	go listenFunc()
 	// the number of each stock available
 	go priceHandler()
+	var sales int
 	ticker := time.NewTicker(1 * time.Minute)
-	for _ = range ticker.C{
+	sales = 0
+	for {
+		select{
+			case _ = <-salesMade:
+				sales++
+			case _ = <-ticker.C:
+				log.Println(strconv.Itoa(sales) + " transactions completed")
+		}
 	}
 
 }
