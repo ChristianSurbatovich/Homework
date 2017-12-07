@@ -10,6 +10,7 @@ import (
 	"time"
 	"bufio"
 	"io"
+	"fmt"
 )
 
 //available := make(map[string]int)
@@ -22,6 +23,7 @@ var muxBuy sync.Mutex
 
 var salesMade = make(chan int16)
 
+// structure to hold the stock being sold, the amount being sold, and the connection to the client selling the stock
 type clientInfo struct{
 	client net.Conn
 	amount int
@@ -32,10 +34,11 @@ type clientInfo struct{
 
 
 // array of stock price
-var pricelist = [6]float64{113.95, 221.57, 170.58, 68.91, 75.17, 30.66}  // starting prices from CNN money
+var pricelist = [6]float64{113.95, 221.57, 170.58, 68.91, 75.17, 30.66}  // starting prices loosely based off of CNN money
 var muxPrice sync.Mutex
 var stocks = []string{"MSFT", "GOOGL", "AAPL", "GE", "C", "AMD"}
 
+// returns the price of an individual stock
 func getPrice(stock string) float64{
 	for i, e := range stocks{
 		if e == stock{
@@ -47,23 +50,28 @@ func getPrice(stock string) float64{
 	}
 	return 0.0
 }
+
+// function that is run as a separate Goroutine for each connection to the server
 func handleConnection(client net.Conn){
-	defer client.Close()
-	reader := bufio.NewReader(client)
+	defer client.Close()// the client will be closed when the function ends
+	reader := bufio.NewReader(client) // create a new buffered reader from the connection
 	log.Println("Received a connection from: " + client.RemoteAddr().String())
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 
+
+	// the general process for handing the connection is
+	// read input from connection
+	// check for errors
+	// switch statement for the first part of the message (the "ACTION" part)
 	for {
-		s, err := reader.ReadString('\n')
+		s, err := reader.ReadString('\n') // read 1 line from the connection
 		//log.Println("Received from: " + client.RemoteAddr().String() + " " + s)
+		// check for errors
 		if err != nil {
-			if netErr, ok := err.(net.Error); ok && (netErr.Timeout()) {
-				log.Println(err)
-				continue
-			}
+			// io.EOF errors are ok
 			if err == io.EOF{
-				log.Println(err)
-				log.Println(s)
+				log.Print(err)
+				fmt.Printf(" on %s\n",client.RemoteAddr().String())
 				continue
 			}
 			// if a client disconnects then remove any stocks they had listed
@@ -84,31 +92,46 @@ func handleConnection(client net.Conn){
 			muxSell.Unlock()
 			break
 		}else{
+			// if the message has any wrong characters than the client sending it has messed up or the message is not from a client
+			// either way discard it and close the connection
 			if strings.ContainsAny(s, ":/!@#$%^&*()_+-,`~"){
 				log.Println("Illegal input")
+				log.Println(s)
 				break
 			}
 			//log.Println("Received from: " + client.RemoteAddr().String() + " " + s)
+
+			// split the message up by spaces and then assign the values to the stock, amount, and price variables
 			message := strings.Split(s," ")
 			if len(message) > 3 {
 				stock := message[1]
 				amount, err := strconv.Atoi(message[2])
 				if(err != nil){
 					log.Println(err)
-						log.Println()
+					log.Println()
 				}
 				price := getPrice(stock)
+				// switch statement on the first element in the message which is the Action desired by the client
 				switch message[0] {
+				// the buy and sell portions are very similar, first there is a quick 10% chance for the transaction to fail
+				// if it does then the server simply sends a cancel message back to the client and waits for a new request
+				// if the transaction doesn't fail then the server first checks the sell list for any clients selling the same stock
+				// if there is a match then it sends a buy or sell message to the appropriate parties
+				// if the seller is selling more stock than the buyer client is buying then the sellers stock is decremented and the buy transaction is done
+				// if the buyer is buying more stocks than the seller is selling than the buyers amount is decremented and the server keeps looking
+				// through the sell list to find more matches
+				// after going to through the whole sell list if there is still an amount left to buy than the server adds the client's connection, the stock type, and the amount of stock being bought
+				// to the buy list
 				case "BUY":
 					// 10% chance for transaction to fail
 					if r.Intn(100) < 10{
-							// the transaction failed
-							_, err := client.Write([]byte("CANCELBUY" + " " + stock + " " + strconv.Itoa(amount) + " " + strconv.FormatFloat(price,'f',2,64) + " \n"))
-							if err != nil{
-								log.Println(err)
-								break
-							}
-							continue
+						// the transaction failed
+						_, err := client.Write([]byte("CANCELBUY" + " " + stock + " " + strconv.Itoa(amount) + " " + strconv.FormatFloat(price,'f',2,64) + " \n"))
+						if err != nil{
+							log.Println(err)
+							break
+						}
+						continue
 					}
 					var remove []bool
 					// first, see if anyone is selling that stock
@@ -151,11 +174,12 @@ func handleConnection(client net.Conn){
 					for i, b := range remove{
 						if b {
 							sellList = append(sellList[:i - shift],sellList[i+1 - shift:]...) //remove the stock from the sell list
-							shift ++
+							shift ++ // the index from the range operation doesnt update when stuff is removed from the array it is ranging over so it is tracked here
 						}
 						remove[i] = false
 					}
 					muxSell.Unlock()
+					// if any stock remain add them to the buy list
 					if amount > 0 {
 						muxBuy.Lock()
 						buyList = append(buyList,clientInfo{
@@ -165,8 +189,6 @@ func handleConnection(client net.Conn){
 						})
 						muxBuy.Unlock()
 					}
-					//log.Print(buyList)
-					// if not then add it to the list of stocks people are buying
 
 
 				case "SELL":
@@ -330,10 +352,10 @@ func main(){
 	sales = 0
 	for {
 		select{
-			case _ = <-salesMade:
-				sales++
-			case _ = <-ticker.C:
-				log.Println(strconv.Itoa(sales) + " transactions completed")
+		case _ = <-salesMade:
+			sales++
+		case _ = <-ticker.C:
+			log.Println(strconv.Itoa(sales) + " transactions completed")
 		}
 	}
 
