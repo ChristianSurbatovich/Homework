@@ -1,8 +1,3 @@
-/*
-Christian Surbatovich CSCI 156
-client code for connecting to the server and accepting incoming message about trade success or failure
- */
-
 package main
 
 import (
@@ -105,7 +100,7 @@ func main(){
 	if len(os.Args) > 1{
 		address = os.Args[1]
 	}else{
-		address = "peachocean.com:7423"
+		address = "45.55.7.24:1732"
 	}
 
 	if len(os.Args) > 2{

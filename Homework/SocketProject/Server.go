@@ -1,9 +1,3 @@
-/*
-Christian Surbatovich CSCI 156
-server code for accepting tcp connections and making trades between the clients
- */
-
-
 package main
 
 import (
@@ -320,7 +314,7 @@ func priceHandler(){
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
-	for _ = range ticker.C{  // update prices every 3 seconds
+	for _ = range ticker.C{
 		for i, e := range pricelist{
 			// ajdust each price by -5% to +5%
 			muxPrice.Lock()
@@ -331,20 +325,18 @@ func priceHandler(){
 
 }
 
-
-// accepts new connections
 func listenFunc(){
-	listener, err := net.Listen("tcp", ":1732") // listen for new tcp connections on port 1732
+	listener, err := net.Listen("tcp", ":1732")
 	if err != nil {
 		log.Println(err)
 		log.Fatalln("Failed to start server")
 	}
 	for {
-		conn, err := listener.Accept()  // accept new connection
+		conn, err := listener.Accept()
 		if err != nil {
 			log.Println(err)
 		}else {
-			go handleConnection(conn) // start the new Goroutine which will handle the new connection
+			go handleConnection(conn)
 		}
 	}
 }
@@ -353,7 +345,7 @@ func listenFunc(){
 func main(){
 	// start the listener as a goroutine which will run concurrently
 	go listenFunc()
-	// the pricehandler Goroutine will periodically change the prices of stocks
+	// the number of each stock available
 	go priceHandler()
 	var sales int
 	ticker := time.NewTicker(1 * time.Minute)
